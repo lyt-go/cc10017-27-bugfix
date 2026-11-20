@@ -41,7 +41,8 @@ class Store:
         artifact_names = [
             "upsert_merge_artifacts", "iceberg_partition_specs",
             "quality_inspection_results", "materialized_refresh_log",
-            "sink_dispatch_queue", "compact_results",
+            "sink_dispatch_queue", "sink_dispatch_receipts",
+            "sink_dispatch_target_ledger", "compact_results",
             "ttl_applied_log", "realtime_metric_results",
         ]
         artifact_counts = {n: len(self.rows(n)) for n in artifact_names}

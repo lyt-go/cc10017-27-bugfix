@@ -90,3 +90,31 @@ def run_action(entry_id: int, payload: ActionPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
+
+
+@router.post("/{entry_id}/dispatch", response_model=ActionResult)
+def execute_dispatch(entry_id: int, payload: dict[str, object] | None = None) -> ActionResult:
+    """执行分发：按视图刷新版本切批推送并写幂等回执；可注入一次模拟部分失败。"""
+    simulate = bool((payload or {}).get("simulate_partial_failure"))
+    result, message = service.execute_dispatch(entry_id, simulate_partial_failure=simulate)
+    if result is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=result)
+
+
+@router.post("/{entry_id}/retry", response_model=ActionResult)
+def retry_dispatch(entry_id: int) -> ActionResult:
+    """失败重试：恢复分发幂等数据回执，仅从已提交位置续推未提交键。"""
+    result, message = service.retry_dispatch(entry_id)
+    if result is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=result)
+
+
+@router.get("/{entry_id}/receipts")
+def list_dispatch_receipts(entry_id: int) -> dict:
+    """读取该规则的全部分发幂等数据回执与目标系统台账汇总。"""
+    summary = service.dispatch_summary(entry_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail=f"分发规则 {entry_id} 不存在或已归档")
+    return summary

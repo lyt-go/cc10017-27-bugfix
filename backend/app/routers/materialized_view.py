@@ -90,3 +90,12 @@ def run_action(entry_id: int, payload: ActionPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
+
+
+@router.get("/{entry_id}/dispatch_receipts")
+def verify_dispatch_receipts(entry_id: int) -> dict:
+    """核对刷新版本：读取下沉分发写入的幂等回执，比对本次推送使用的视图刷新版本。"""
+    result, message = service.verify_dispatch_version(entry_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=message)
+    return result

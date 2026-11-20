@@ -75,5 +75,17 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 下沉分发幂等回执
+
+下沉分发按物化视图的刷新版本把订单聚合表切批推送，为每个批次键写一份
+分发幂等数据回执（`sink_dispatch_receipts`，保留批次键与已提交位置），
+目标系统提交台账（`sink_dispatch_target_ledger`）按（目标系统, 批次键, 记录键）
+去重，失败重试只续推未提交键，同一批次键在目标系统只提交一次。
+
+- `POST /api/sink_dispatch/{id}/dispatch`：执行分发，`{"simulate_partial_failure": true}` 可注入一次部分失败
+- `POST /api/sink_dispatch/{id}/retry`：按回执续推未提交键，已确认批次整批跳过
+- `GET  /api/sink_dispatch/{id}/receipts`：回执列表与目标系统台账汇总
+- `GET  /api/materialized_view/{id}/dispatch_receipts`：物化查询读取回执并核对本次推送使用的视图刷新版本
+
 领域：数据工程
 子方向：数仓与数据湖

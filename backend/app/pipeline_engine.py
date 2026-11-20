@@ -296,24 +296,33 @@ class PipelineEngine:
         if not mv:
             return {"ok": False, "error": f"下游表 {downstream} 未配置物化视图"}
 
-        # 模拟生成刷新产物
+        # 模拟生成刷新产物：每次刷新递增视图刷新版本，下沉分发按此版本切批
+        self._ensure_artifact_table("materialized_refresh_log")
+        existing = [
+            log for log in store.rows("materialized_refresh_log")
+            if log.get("mv_id") == mv.get("id")
+        ]
+        refresh_version = f"MV{mv.get('id')}-v{len(existing) + 1}"
         refreshed_data = {
             "lineage_id": lineage_id,
             "upstream_topic": upstream,
             "downstream_table": downstream,
             "field_mapping": field_map,
             "mv_id": mv.get("id"),
+            "refresh_version": refresh_version,
             "refreshed_at": datetime.now().isoformat(),
             "record_count": 42,  # 模拟值
         }
-        self._ensure_artifact_table("materialized_refresh_log")
         store.rows("materialized_refresh_log").append(refreshed_data)
+        mv["最后刷新"] = refreshed_data["refreshed_at"]
+        mv["刷新版本"] = refresh_version
 
         # 同时触发下沉分发检查
         sink = self._find_by_field("sink_dispatch", "湖表名", downstream)
         if sink:
             dispatch_record = {
                 "mv_refresh_id": refreshed_data["refreshed_at"],
+                "refresh_version": refresh_version,
                 "sink_rule_id": sink.get("id"),
                 "target_system": sink.get("目标系统"),
                 "dispatched_at": datetime.now().isoformat(),
@@ -583,6 +592,8 @@ class PipelineEngine:
             "quality_inspection_results": len(store.rows("quality_inspection_results")),
             "materialized_refresh_log": len(store.rows("materialized_refresh_log")),
             "sink_dispatch_queue": len(store.rows("sink_dispatch_queue")),
+            "sink_dispatch_receipts": len(store.rows("sink_dispatch_receipts")),
+            "sink_dispatch_target_ledger": len(store.rows("sink_dispatch_target_ledger")),
             "compact_results": len(store.rows("compact_results")),
             "ttl_applied_log": len(store.rows("ttl_applied_log")),
             "realtime_metric_results": len(store.rows("realtime_metric_results")),

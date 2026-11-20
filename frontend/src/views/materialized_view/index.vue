@@ -48,6 +48,7 @@
             >
               {{ action }}
             </button>
+            <button class="link" type="button" :data-testid="`verify-${row.id}`" @click="verifyVersion(row)">核对刷新版本</button>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -55,6 +56,62 @@
         </tr>
       </tbody>
     </table>
+
+    <section v-if="verifyRow && verifyResult" class="receipt-panel" data-testid="verify-panel">
+      <header class="receipt-head">
+        <h3>刷新版本核对 — {{ verifyRow['视图编号'] }}（基表 {{ verifyResult['基表名'] }}）</h3>
+        <button class="btn ghost" type="button" data-testid="close-verify" @click="closeVerify">收起</button>
+      </header>
+      <div class="stat-row">
+        <article class="stat-card">
+          <span class="stat-label">当前刷新版本</span>
+          <strong class="stat-value" data-testid="current-refresh-version">{{ verifyResult['当前刷新版本'] }}</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">目标系统聚合值</span>
+          <strong class="stat-value" data-testid="verify-aggregate">{{ verifyResult.ledger?.aggregate_total ?? 0 }}</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">已提交键数</span>
+          <strong class="stat-value">{{ verifyResult.ledger?.committed_keys ?? 0 }}</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">重复提交数</span>
+          <strong class="stat-value" data-testid="verify-duplicates">{{ verifyResult.ledger?.duplicate_commits ?? 0 }}</strong>
+        </article>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>回执编号</th>
+            <th>批次键</th>
+            <th>分发规则</th>
+            <th>目标系统</th>
+            <th>回执刷新版本</th>
+            <th>已提交位置</th>
+            <th>回执状态</th>
+            <th>提交确认</th>
+            <th>版本核对</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in verifyResult.receipts" :key="String(item.receipt_id)" :data-testid="`verify-receipt-${item.receipt_id}`">
+            <td>{{ item.receipt_id }}</td>
+            <td>{{ item.batch_key }}</td>
+            <td>{{ item['规则编号'] }}</td>
+            <td>{{ item.target_system }}</td>
+            <td>{{ item.receipt_refresh_version }}</td>
+            <td>{{ item.committed_position }}/{{ item.total_keys }}</td>
+            <td>{{ item.status }}</td>
+            <td>{{ item.confirmation ? `已确认#${item.confirmation.confirm_seq}` : '—' }}</td>
+            <td :data-testid="`verify-result-${item.receipt_id}`">{{ item['核对结果'] }}</td>
+          </tr>
+          <tr v-if="!verifyResult.receipts?.length">
+            <td colspan="9" class="empty-state">暂无分发回执：下沉分发执行后此处核对视图刷新版本</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
 
     <div v-if="showCreate" class="modal-backdrop" data-testid="create-modal">
       <form class="modal" @submit.prevent="submitCreate">
@@ -85,6 +142,7 @@ import { computed, onMounted, ref } from 'vue'
 import { request } from '@/api/client'
 
 type Row = Record<string, string | number | null>
+type VerifyResult = Record<string, any>
 
 const ENDPOINT = '/api/materialized_view'
 const columns = ["视图编号", "查询SQL", "基表名", "刷新模式", "刷新间隔", "存储位置", "数据量", "最后刷新"]
@@ -100,6 +158,8 @@ const filterFields = columns.slice(0, 3)
 const showCreate = ref(false)
 const creating = ref(false)
 const createValues = ref<Record<string, string>>({})
+const verifyRow = ref<Row | null>(null)
+const verifyResult = ref<VerifyResult | null>(null)
 const stats = computed(() => [
   { label: metricNames[0], value: total.value },
   { label: metricNames[1], value: rows.value.filter((row) => row.status === statuses[1]).length },
@@ -168,6 +228,27 @@ async function runAction(action: string, row: Row) {
   }
 }
 
+async function verifyVersion(row: Row) {
+  errorMessage.value = ''
+  if (verifyRow.value?.id === row.id) {
+    closeVerify()
+    return
+  }
+  try {
+    const response = await request(`${ENDPOINT}/${row.id}/dispatch_receipts`)
+    if (!response.ok) throw new Error('刷新版本核对失败，请稍后重试')
+    verifyResult.value = await response.json()
+    verifyRow.value = row
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '刷新版本核对失败'
+  }
+}
+
+function closeVerify() {
+  verifyRow.value = null
+  verifyResult.value = null
+}
+
 async function reload() {
   errorMessage.value = ''
   const query = new URLSearchParams(filters.value as Record<string, string>).toString()
@@ -179,8 +260,13 @@ async function reload() {
     const payload = await response.json()
     rows.value = payload.items ?? []
     total.value = payload.total ?? rows.value.length
+    if (verifyRow.value) {
+      const current = verifyRow.value
+      verifyRow.value = null
+      await verifyVersion(current)
+    }
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '物化查询列表读取失败'
+    errorMessage.value = error instanceof Error ? error.message : '物化视图列表读取失败'
   }
 }
 
